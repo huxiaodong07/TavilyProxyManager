@@ -15,6 +15,7 @@ import json
 from datetime import datetime
 import time
 from email import message_from_string
+from browser_fingerprint import get_fingerprint_for_email, generate_random_fingerprint
 
 # SVG to PNG conversion (svglib)
 try:
@@ -81,19 +82,39 @@ def load_config(config_path: str = None) -> dict:
     return config
 
 
-def create_session() -> requests.Session:
+def create_session(email: str = None, use_fingerprint: bool = True) -> requests.Session:
     """
     创建配置好的请求会话
+
+    Args:
+        email: 邮箱地址,用于生成一致的指纹
+        use_fingerprint: 是否使用浏览器指纹
 
     Returns:
         requests.Session 对象
     """
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    })
+    
+    if use_fingerprint:
+        # 使用浏览器指纹
+        if email:
+            fingerprint = get_fingerprint_for_email(email)
+        else:
+            fingerprint = generate_random_fingerprint()
+        
+        headers = fingerprint.get_headers()
+        session.headers.update(headers)
+        
+        # 保存指纹数据到 session,供后续使用
+        session.fingerprint = fingerprint
+    else:
+        # 使用默认 headers
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        })
+    
     return session
 
 
@@ -1628,6 +1649,7 @@ def signup(
     keep_session: bool = False,
     *,
     debug_init: bool = False,
+    use_fingerprint: bool = True,
 ) -> dict:
     """
     完整的注册流程
@@ -1660,7 +1682,9 @@ def signup(
         print(f"注册尝试 {attempt + 1}/{max_retries}")
         print(f"{'='*60}")
 
-        session = create_session()
+        session = create_session(email=email, use_fingerprint=use_fingerprint)
+        if use_fingerprint and hasattr(session, 'fingerprint'):
+            print(f"    使用浏览器指纹: {session.fingerprint.get_user_agent()[:80]}...")
         keep_open = False
         try:
 

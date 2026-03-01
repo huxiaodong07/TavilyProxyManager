@@ -324,6 +324,7 @@ def batch_signup(
     verify_poll_interval: float = VERIFY_POLL_INTERVAL,
     max_generate_attempts: int = MAX_EMAIL_GENERATE_ATTEMPTS,
     debug_init: bool = False,
+    use_fingerprint: bool = True,
 ):
     """
     批量注册
@@ -333,6 +334,7 @@ def batch_signup(
     print("=" * 60)
     print(f"输出文件: {output_file}")
     print(f"失败记录: {failed_file}")
+    print(f"浏览器指纹: {'启用' if use_fingerprint else '禁用'}")
     print()
 
     # 加载配置
@@ -432,6 +434,7 @@ def batch_signup(
                         mail_jwt=None,
                         keep_session=True,
                         debug_init=debug_init,
+                        use_fingerprint=use_fingerprint,
                     )
 
                     signup_session = result.get("session")
@@ -566,6 +569,7 @@ def retry_failed(
     verify_timeout: int = VERIFY_TIMEOUT,
     verify_poll_interval: float = VERIFY_POLL_INTERVAL,
     debug_init: bool = False,
+    use_fingerprint: bool = True,
 ):
     """
     重试失败的注册
@@ -602,6 +606,7 @@ def retry_failed(
         verify_timeout=verify_timeout,
         verify_poll_interval=verify_poll_interval,
         debug_init=debug_init,
+        use_fingerprint=use_fingerprint,
     )
 
 
@@ -625,6 +630,7 @@ if __name__ == "__main__":
     parser.add_argument('--verify-timeout', type=int, default=VERIFY_TIMEOUT)
     parser.add_argument('--verify-interval', type=float, default=VERIFY_POLL_INTERVAL)
     parser.add_argument('--debug-init', action='store_true', help='打印首次登录初始化接口调用信息（/api/account 等）')
+    parser.add_argument('--no-fingerprint', action='store_true', help='禁用浏览器指纹功能')
 
     args = parser.parse_args()
 
@@ -641,6 +647,7 @@ if __name__ == "__main__":
             verify_timeout=args.verify_timeout,
             verify_poll_interval=args.verify_interval,
             debug_init=args.debug_init,
+            use_fingerprint=not args.no_fingerprint,
         )
     else:
         emails = load_email_list(args.input) if args.input else None
@@ -661,4 +668,5 @@ if __name__ == "__main__":
             verify_poll_interval=args.verify_interval,
             max_generate_attempts=args.max_generate_attempts,
             debug_init=args.debug_init,
+            use_fingerprint=not args.no_fingerprint,
         )

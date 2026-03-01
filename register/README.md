@@ -48,7 +48,7 @@ OPENAI_MODEL: "YOUR_MODEL"
 uv run python batch_signup.py --help
 ```
 
-脚本内置临时邮箱的共享key，批量注册
+脚本内置临时邮箱的共享key，批量注册（默认启用浏览器指纹）
 
 ```
 uv run python batch_signup.py
@@ -60,6 +60,12 @@ uv run python batch_signup.py
 uv run python batch_signup.py --gptmail-api-key your_own_key
 ```
 
+禁用浏览器指纹功能（不推荐）
+
+```
+uv run python batch_signup.py --no-fingerprint
+```
+
 
 
 ## 输出文件
@@ -68,9 +74,21 @@ uv run python batch_signup.py --gptmail-api-key your_own_key
 - `failed.txt`：失败记录（邮箱与错误信息）
 - `banned_domains.txt`：被判定为不可用的域名黑名单
 
+## 浏览器指纹功能
+
+项目内置浏览器指纹功能，可以减少风控检测：
+
+- **自动生成真实指纹**：每个邮箱使用独特的浏览器指纹
+- **包含完整特征**：User-Agent, WebGL, Canvas, 屏幕分辨率等
+- **指纹一致性**：同一邮箱多次使用相同指纹
+- **默认启用**：无需额外配置
+
+详细说明请查看 [FINGERPRINT.md](FINGERPRINT.md)
+
 ## 常见问题
 
 - `ip-signup-blocked`：表示当前出口 IP 被禁止注册。脚本会终止批量流程
 - `custom-script-error-code_extensibility_error`：通常表示当前邮箱域名被禁止。脚本会将域名写入 `banned_domains.txt` 并在自动生成邮箱模式下重新获取邮箱重试。
 - `invalid-captcha`：验证码识别结果不正确。可考虑降低并发、增加重试间隔
+- `获取验证码失败`：页面未找到验证码，可能是网络问题或页面结构变化
 - `tavily`调整了策略，一个ip一段时间内只能注册5个，请勿滥用
