@@ -15,7 +15,7 @@ import json
 from datetime import datetime
 import time
 from email import message_from_string
-from browser_fingerprint import get_fingerprint_for_email, generate_random_fingerprint
+from tavily_register.utils.fingerprint import get_fingerprint_for_email, generate_random_fingerprint
 
 # SVG to PNG conversion (svglib)
 try:
@@ -74,7 +74,9 @@ def load_config(config_path: str = None) -> dict:
         配置字典
     """
     if config_path is None:
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml")
+        config_path = os.path.abspath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "config.yaml")
+        )
 
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
@@ -82,13 +84,14 @@ def load_config(config_path: str = None) -> dict:
     return config
 
 
-def create_session(email: str = None, use_fingerprint: bool = True) -> requests.Session:
+def create_session(email: str = None, use_fingerprint: bool = True, proxy_pool=None) -> requests.Session:
     """
     创建配置好的请求会话
 
     Args:
         email: 邮箱地址,用于生成一致的指纹
         use_fingerprint: 是否使用浏览器指纹
+        proxy_pool: 代理池对象（可选）
 
     Returns:
         requests.Session 对象
@@ -115,7 +118,16 @@ def create_session(email: str = None, use_fingerprint: bool = True) -> requests.
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         })
     
+    # 配置代理
+    if proxy_pool:
+        proxy = proxy_pool.get_proxy()
+        if proxy:
+            session.proxies = proxy.to_requests_proxies()
+            session.proxy_config = proxy  # 保存代理配置供后续使用
+            print(f"    使用代理: {proxy.to_url()}")
+    
     return session
+
 
 
 def svg_to_png_base64(svg_base64: str) -> str | None:
@@ -339,20 +351,52 @@ def recognize_captcha_with_vision(captcha_base64: str, config: dict) -> str:
         response = requests.post(api_url, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
 
-        result = response.json()
-        captcha_text = result["choices"][0]["message"]["content"].strip()
+        raw_text = response.text or ""
+        print(f"    模型原始返回(status={response.status_code}): {raw_text[:500]}")
+
+        try:
+            result = response.json()
+        except Exception as e:
+            print(f"    错误: 响应不是合法JSON - {e}")
+            return None
+
+        captcha_text = None
+
+        # OpenAI兼容格式: choices[0].message.content
+        if isinstance(result, dict):
+            choices = result.get("choices")
+            if isinstance(choices, list) and choices:
+                first = choices[0] if isinstance(choices[0], dict) else {}
+                msg = first.get("message") if isinstance(first, dict) else None
+                if isinstance(msg, dict):
+                    content = msg.get("content")
+                    if isinstance(content, str):
+                        captcha_text = content.strip()
+
+            # 兜底：一些网关/模型会返回 text/result/output
+            if not captcha_text:
+                for key in ("text", "result", "output", "msg"):
+                    val = result.get(key)
+                    if isinstance(val, str) and val.strip():
+                        captcha_text = val.strip()
+                        break
+
+        if not captcha_text:
+            print("    错误: 无法从模型响应中提取验证码文本")
+            return None
 
         # 清理结果，只保留字母和数字
         captcha_text = re.sub(r'[^A-Za-z0-9]', '', captcha_text)
+
+        if not captcha_text:
+            print("    错误: 提取到的验证码为空")
+            return None
 
         print(f"    识别结果: {captcha_text}")
         return captcha_text
 
     except requests.exceptions.RequestException as e:
         print(f"    错误: API请求失败 - {e}")
-        return None
-    except (KeyError, IndexError) as e:
-        print(f"    错误: 解析响应失败 - {e}")
         return None
 
 

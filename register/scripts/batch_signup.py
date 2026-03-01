@@ -4,12 +4,21 @@ Tavily 批量注册
 """
 import argparse
 import os
+import sys
 import time
 from datetime import datetime
 from typing import Iterable
 
-from gptmail_client import GPTMailAPIError, GPTMailClient
-from signup import (
+# 路径配置（统一落在 data 目录）
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+from tavily_register.email.gptmail_client import GPTMailAPIError, GPTMailClient
+from tavily_register.core.register import (
     create_session,
     create_api_key,
     get_api_keys,
@@ -18,11 +27,12 @@ from signup import (
     signup,
     verify_email,
 )
+from tavily_register.proxy.pool import ProxyPool, load_proxy_config
 
 # 配置
-OUTPUT_FILE = "api_keys.txt"
-FAILED_FILE = "failed.txt"
-BANNED_DOMAINS_FILE = "banned_domains.txt"
+OUTPUT_FILE = os.path.join(DATA_DIR, "api_keys.txt")
+FAILED_FILE = os.path.join(DATA_DIR, "failed.txt")
+BANNED_DOMAINS_FILE = os.path.join(DATA_DIR, "banned_domains.txt")
 PASSWORD = "Tavily@2024Test"
 
 # 注册间隔（秒），避免被限制
@@ -152,7 +162,7 @@ def generate_unbanned_email(
     raise RuntimeError(f"生成邮箱失败: 连续 {max_attempts} 次命中禁用域名")
 
 
-def try_login_get_key(email: str, password: str, config: dict, *, debug_init: bool = False) -> str:
+def try_login_get_key(email: str, password: str, config: dict, *, debug_init: bool = False, proxy_pool=None) -> str:
     """
     尝试登录已注册账户并获取API Key
 
@@ -169,7 +179,7 @@ def try_login_get_key(email: str, password: str, config: dict, *, debug_init: bo
             except Exception:
                 pass
 
-        session = create_session()
+        session = create_session(email=email, proxy_pool=proxy_pool)
         try:
             login_result = login_after_verification(session, email, password, config)
             if login_result.get("success"):
@@ -233,6 +243,7 @@ def _verify_with_gptmail_and_get_key(
     verify_timeout: int = VERIFY_TIMEOUT,
     verify_poll_interval: float = VERIFY_POLL_INTERVAL,
     debug_init: bool = False,
+    proxy_pool=None,
 ) -> str | None:
     print(f"    等待 GPTMail 验证邮件...")
     link = client.wait_for_verification_link(email, timeout=verify_timeout, poll_interval=verify_poll_interval)
@@ -244,7 +255,7 @@ def _verify_with_gptmail_and_get_key(
 
     close_session = False
     if session is None:
-        session = create_session()
+        session = create_session(email=email, proxy_pool=proxy_pool)
         close_session = True
     try:
         verify_result = verify_email(session, link)
@@ -297,7 +308,7 @@ def _verify_with_gptmail_and_get_key(
 
         # 如果到这里还没获取到 key，尝试重新登录
         print("    已登录但未获取到 key，尝试重新登录...")
-        return try_login_get_key(email, password, config, debug_init=debug_init)
+        return try_login_get_key(email, password, config, debug_init=debug_init, proxy_pool=proxy_pool)
     finally:
         if close_session:
             try:
@@ -325,6 +336,9 @@ def batch_signup(
     max_generate_attempts: int = MAX_EMAIL_GENERATE_ATTEMPTS,
     debug_init: bool = False,
     use_fingerprint: bool = True,
+    proxy_enabled: bool | None = None,
+    proxy_strategy: str | None = None,
+    proxy_health_check: bool | None = None,
 ):
     """
     批量注册
@@ -339,6 +353,28 @@ def batch_signup(
 
     # 加载配置
     config = load_config()
+    
+    # 初始化代理池
+    proxy_config = load_proxy_config()
+    
+    # 命令行参数覆盖配置文件
+    if proxy_enabled is not None:
+        proxy_config['enabled'] = proxy_enabled
+    if proxy_strategy is not None:
+        proxy_config['strategy'] = proxy_strategy
+    if proxy_health_check is not None:
+        proxy_config['health_check'] = proxy_health_check
+    
+    proxy_pool = ProxyPool(proxy_config) if proxy_config.get('enabled') else None
+    
+    if proxy_pool and proxy_pool.enabled:
+        print(f"代理池: 启用")
+        print(f"  策略: {proxy_pool.strategy}")
+        print(f"  健康检查: {'启用' if proxy_pool.health_check_enabled else '禁用'}")
+        print(f"  供应商数量: {len(proxy_pool.providers)}")
+    else:
+        print(f"代理池: 禁用")
+    print()
 
     email_list = list(emails) if emails is not None else []
     if emails is None:
@@ -458,6 +494,7 @@ def batch_signup(
                                 verify_timeout=verify_timeout,
                                 verify_poll_interval=verify_poll_interval,
                                 debug_init=debug_init,
+                                proxy_pool=proxy_pool,
                             )
                             if api_key:
                                 save_result(output_file, email, api_key)
@@ -509,7 +546,7 @@ def batch_signup(
                             break
 
                         # 尝试登录获取API Key（邮箱可能已经注册）
-                        api_key = try_login_get_key(email, password, config, debug_init=debug_init)
+                        api_key = try_login_get_key(email, password, config, debug_init=debug_init, proxy_pool=proxy_pool)
                         if api_key:
                             save_result(output_file, email, api_key)
                             print(f"\n通过登录获取成功! API Key: {api_key[:15]}...{api_key[-4:]}")
@@ -554,6 +591,10 @@ def batch_signup(
     print(f"API Keys 已保存到: {output_file}")
     if failed_count > 0:
         print(f"失败记录已保存到: {failed_file}")
+    
+    # 打印代理池统计
+    if proxy_pool and proxy_pool.enabled:
+        proxy_pool.print_stats()
 
 
 def retry_failed(
@@ -570,6 +611,9 @@ def retry_failed(
     verify_poll_interval: float = VERIFY_POLL_INTERVAL,
     debug_init: bool = False,
     use_fingerprint: bool = True,
+    proxy_enabled: bool | None = None,
+    proxy_strategy: str | None = None,
+    proxy_health_check: bool | None = None,
 ):
     """
     重试失败的注册
@@ -607,6 +651,9 @@ def retry_failed(
         verify_poll_interval=verify_poll_interval,
         debug_init=debug_init,
         use_fingerprint=use_fingerprint,
+        proxy_enabled=proxy_enabled,
+        proxy_strategy=proxy_strategy,
+        proxy_health_check=proxy_health_check,
     )
 
 
@@ -631,8 +678,28 @@ if __name__ == "__main__":
     parser.add_argument('--verify-interval', type=float, default=VERIFY_POLL_INTERVAL)
     parser.add_argument('--debug-init', action='store_true', help='打印首次登录初始化接口调用信息（/api/account 等）')
     parser.add_argument('--no-fingerprint', action='store_true', help='禁用浏览器指纹功能')
+    
+    # 代理池参数
+    parser.add_argument('--proxy-enabled', action='store_true', help='启用代理池（覆盖配置文件）')
+    parser.add_argument('--no-proxy', action='store_true', help='禁用代理池（覆盖配置文件）')
+    parser.add_argument('--proxy-strategy', choices=['round-robin', 'random'], help='代理轮换策略（覆盖配置文件）')
+    parser.add_argument('--proxy-health-check', action='store_true', help='启用代理健康检查（覆盖配置文件）')
+    parser.add_argument('--no-proxy-health-check', action='store_true', help='禁用代理健康检查（覆盖配置文件）')
 
     args = parser.parse_args()
+    
+    # 处理代理参数
+    proxy_enabled = None
+    if args.proxy_enabled:
+        proxy_enabled = True
+    elif args.no_proxy:
+        proxy_enabled = False
+    
+    proxy_health_check = None
+    if args.proxy_health_check:
+        proxy_health_check = True
+    elif args.no_proxy_health_check:
+        proxy_health_check = False
 
     if args.retry:
         retry_failed(
@@ -648,6 +715,9 @@ if __name__ == "__main__":
             verify_poll_interval=args.verify_interval,
             debug_init=args.debug_init,
             use_fingerprint=not args.no_fingerprint,
+            proxy_enabled=proxy_enabled,
+            proxy_strategy=args.proxy_strategy,
+            proxy_health_check=proxy_health_check,
         )
     else:
         emails = load_email_list(args.input) if args.input else None
@@ -669,4 +739,7 @@ if __name__ == "__main__":
             max_generate_attempts=args.max_generate_attempts,
             debug_init=args.debug_init,
             use_fingerprint=not args.no_fingerprint,
+            proxy_enabled=proxy_enabled,
+            proxy_strategy=args.proxy_strategy,
+            proxy_health_check=proxy_health_check,
         )

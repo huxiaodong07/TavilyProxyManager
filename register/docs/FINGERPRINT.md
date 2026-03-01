@@ -41,14 +41,14 @@
 
 ```bash
 # 浏览器指纹功能默认启用
-uv run python batch_signup.py --count 5
+uv run python scripts/batch_signup.py --count 5
 ```
 
 ### 禁用指纹功能
 
 ```bash
 # 如果需要禁用指纹功能
-uv run python batch_signup.py --count 5 --no-fingerprint
+uv run python scripts/batch_signup.py --count 5 --no-fingerprint
 ```
 
 ### 查看指纹信息
@@ -70,26 +70,26 @@ uv run python batch_signup.py --count 5 --no-fingerprint
 
 ### 核心文件
 
-- `browser_fingerprint.py`: 指纹生成模块
+- `tavily_register/utils/fingerprint.py`: 指纹生成模块
   - `BrowserFingerprint`: 指纹生成器类
-  - `FingerprintManager`: 指纹管理器
   - `get_fingerprint_for_email()`: 获取邮箱对应的指纹
+  - `generate_random_fingerprint()`: 生成随机指纹
 
 ### 集成位置
 
-- `signup.py`:
+- `tavily_register/core/register.py`:
   - `create_session()`: 创建带指纹的 session
   - `signup()`: 注册流程中使用指纹
 
-- `batch_signup.py`:
+- `scripts/batch_signup.py`:
   - 添加 `--no-fingerprint` 参数
   - 传递 `use_fingerprint` 参数到注册流程
 
 ## 测试指纹功能
 
 ```bash
-# 运行测试脚本
-python browser_fingerprint.py
+# 运行批量注册（默认启用指纹）
+uv run python scripts/batch_signup.py --count 1
 ```
 
 输出示例:

@@ -1,0 +1,4 @@
+# file: E:\ai\register\TavilyProxyManager\register\proxy_pool.py
+# hypothesis_version: 6.151.2
+
+[200, '\n代理详情:', ':', '://', '=', '@', 'Authorization', 'PROXY_POOL', 'api', 'api_key', 'api_params', 'api_url', 'cache_size', 'config.yaml', 'data', 'enabled', 'failure', 'failure_count', 'health_check', 'health_check_timeout', 'host', 'http', 'https', 'ip', 'name', 'pass', 'password', 'port', 'protocol', 'providers', 'proxies', 'proxy_usage', 'r', 'random', 'results', 'round-robin', 'static', 'strategy', 'success', 'success_count', 'total_requests', 'type', 'unknown', 'user', 'username', 'utf-8', '代理使用统计']

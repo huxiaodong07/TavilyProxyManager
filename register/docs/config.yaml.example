@@ -1,0 +1,43 @@
+# 支持视觉的大模型
+OPENAI_BASEURL: https://example.com/v1
+OPENAI_API_KEY: key
+OPENAI_MODEL: gemini-3-flash
+
+# IP代理池配置
+PROXY_POOL:
+  # 是否启用代理池
+  enabled: false
+  
+  # 代理轮换策略: round-robin（轮询） 或 random（随机）
+  strategy: round-robin
+  
+  # 是否启用健康检查
+  health_check: false
+  
+  # 健康检查超时时间（秒）
+  health_check_timeout: 10
+  
+  # 代理供应商列表
+  providers:
+    # 静态代理列表示例
+    - type: static
+      name: my-static-proxies
+      proxies:
+        # 支持多种格式:
+        # - host:port
+        # - host:port:username:password
+        # - protocol://host:port
+        # - protocol://username:password@host:port
+        - "http://proxy1.example.com:8080"
+        - "http://user:pass@proxy2.example.com:8080"
+        - "proxy3.example.com:8080:user:pass"
+    
+    # API类型代理供应商示例
+    - type: api
+      name: proxy-api-provider
+      api_url: "https://api.proxyservice.com/get"
+      api_key: "your-api-key-here"
+      api_params:
+        count: 10
+        protocol: http
+      cache_size: 10

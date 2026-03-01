@@ -34,9 +34,13 @@ env/
 *~
 
 # Project specific
-config.yaml
 email.txt
 *.log
+data/config.yaml
+data/api_keys.txt
+data/failed.txt
+data/banned_domains.txt
+data/free_proxies.txt
 
 # AI/Editor tools
 .zencoder/
@@ -45,6 +49,3 @@ email.txt
 # OS files
 .DS_Store
 Thumbs.db
-api_keys.txt
-config.yaml
-failed.txt
