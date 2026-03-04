@@ -3,6 +3,7 @@ version: "3.8"
 services:
   tavily-proxy:
     image: ghcr.io/xuncv/tavilyproxymanager:latest
+    pull_policy: always
     ports:
       - "8080:8080"
     environment:
