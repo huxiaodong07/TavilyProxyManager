@@ -186,6 +186,11 @@ func (p *TavilyProxy) Do(ctx context.Context, req ProxyRequest) (ProxyResponse, 
 	}
 
 	var lastErr error
+	var lastRateLimitedResp ProxyResponse
+	var hasRateLimitedResp bool
+	var lastRateLimitedKeyID uint
+	var lastRateLimitedKeyAlias string
+	var lastRateLimitedLatency int64
 	for _, key := range candidates {
 		resp, status, latencyMs, tavilyReqID, err := p.tryKey(ctx, key.ID, key.Key, req, proxyReqID)
 
@@ -209,7 +214,22 @@ func (p *TavilyProxy) Do(ctx context.Context, req ProxyRequest) (ProxyResponse, 
 			)
 			_ = p.keys.MarkInvalid(ctx, key.ID)
 			continue
-		case http.StatusTooManyRequests, 432, 433:
+		case http.StatusTooManyRequests:
+			p.logger.Warn("key rate limited",
+				"request_id", proxyReqID,
+				"key_id", key.ID,
+				"key_alias", key.Alias,
+				"status", status,
+			)
+			resp.ProxyRequestID = proxyReqID
+			resp.TavilyRequestID = tavilyReqID
+			lastRateLimitedResp = resp
+			hasRateLimitedResp = true
+			lastRateLimitedKeyID = key.ID
+			lastRateLimitedKeyAlias = key.Alias
+			lastRateLimitedLatency = latencyMs
+			continue
+		case 432, 433:
 			p.logger.Warn("key quota exhausted",
 				"request_id", proxyReqID,
 				"key_id", key.ID,
@@ -277,6 +297,50 @@ func (p *TavilyProxy) Do(ctx context.Context, req ProxyRequest) (ProxyResponse, 
 			"latency_ms", time.Since(startTime).Milliseconds(),
 		)
 		return resp, nil
+	}
+
+	if hasRateLimitedResp {
+		createdAt := time.Now()
+		if loggingEnabled {
+			if captureBodies {
+				responseBody, responseTruncated := truncateForLog(lastRateLimitedResp.Body, maxLogBytes)
+				_ = p.logs.Create(ctx, &models.RequestLog{
+					RequestID:         proxyReqID,
+					KeyUsed:           lastRateLimitedKeyID,
+					KeyAlias:          lastRateLimitedKeyAlias,
+					Endpoint:          req.Path,
+					StatusCode:        lastRateLimitedResp.StatusCode,
+					LatencyMs:         lastRateLimitedLatency,
+					RequestBody:       requestBody,
+					RequestTruncated:  requestTruncated,
+					ResponseBody:      responseBody,
+					ResponseTruncated: responseTruncated,
+					ClientIP:          req.ClientIP,
+					CreatedAt:         createdAt,
+				})
+			} else {
+				_ = p.logs.Create(ctx, &models.RequestLog{
+					RequestID:  proxyReqID,
+					KeyUsed:    lastRateLimitedKeyID,
+					KeyAlias:   lastRateLimitedKeyAlias,
+					Endpoint:   req.Path,
+					StatusCode: lastRateLimitedResp.StatusCode,
+					LatencyMs:  lastRateLimitedLatency,
+					ClientIP:   req.ClientIP,
+					CreatedAt:  createdAt,
+				})
+			}
+		}
+		if p.stats != nil {
+			_ = p.stats.RecordRequest(ctx, req.Path, createdAt)
+		}
+		p.logger.Warn("proxy request completed with rate limit",
+			"request_id", proxyReqID,
+			"key_id", lastRateLimitedKeyID,
+			"status", lastRateLimitedResp.StatusCode,
+			"latency_ms", time.Since(startTime).Milliseconds(),
+		)
+		return lastRateLimitedResp, nil
 	}
 
 	if captureBodies && lastErr != nil {
