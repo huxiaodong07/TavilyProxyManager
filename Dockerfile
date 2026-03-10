@@ -25,7 +25,6 @@ COPY --from=backend-builder /app/tavily-proxy .
 
 VOLUME /app/data
 ENV DATABASE_PATH=/app/data/proxy.db
-ENV LISTEN_ADDR=:8080
 
 EXPOSE 8080
 
